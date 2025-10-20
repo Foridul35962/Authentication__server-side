@@ -4,6 +4,7 @@ import asyncHandler from "../utils/asyncHandler.js";
 import { check, validationResult } from 'express-validator'
 import ApiResponse from "../utils/ApiResponse.js";
 import generateAccessAndRefreshToken from "../utils/token.js";
+import transport from "../config/nodemailer.js";
 
 
 export const registerUser = [
@@ -49,6 +50,16 @@ export const registerUser = [
         })
         const userData = user.toObject()
         delete userData.password
+
+        //sending mail
+        const mailOptions = {
+            from: process.env.SENDER_EMAIL,
+            to: email,
+            subject: 'Welcome to my Authentication Project',
+            text: `Welcome to My website. Your account has been created with email id: ${email}`
+        }
+
+        await transport.sendMail(mailOptions)
 
         return res
             .status(200)
