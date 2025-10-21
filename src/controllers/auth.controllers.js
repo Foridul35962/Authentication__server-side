@@ -170,25 +170,25 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     if (otp === '' || user.verifyOtp !== otp) {
         user.verifyOtp = ''
         user.verifyOtpExpired = 0
-        await user.save({validateBeforeSave: false})
+        await user.save({ validateBeforeSave: false })
         throw new ApiErrors(400, "Otp is not matched")
     }
 
     if (user.verifyOtpExpired < Date.now()) {
         user.verifyOtp = ''
         user.verifyOtpExpired = 0
-        await user.save({validateBeforeSave: false})
+        await user.save({ validateBeforeSave: false })
         throw new ApiErrors(400, "OTP is expired")
     }
 
     user.verifyOtp = ''
     user.verifyOtpExpired = 0
-    await user.save({validateBeforeSave: false})
+    await user.save({ validateBeforeSave: false })
 
     const verifiedUser = await User.findById(user._id).select("-password -refreshToken -verifyOtp")
 
     const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
-    
+
     const accessOptions = {
         httpOnly: true,
         secure: true,
@@ -208,6 +208,99 @@ export const verifyEmail = asyncHandler(async (req, res) => {
         .cookie('accessToken', accessToken, accessOptions)
         .cookie('refreshToken', refreshToken, refreshOptions)
         .json(
-            new ApiResponse(200, verifiedUser, "user is verified successfully" )
+            new ApiResponse(200, verifiedUser, "user is verified successfully")
         )
 })
+
+export const sendPassResetOtp = asyncHandler(async (req, res) => {
+    const { email } = req.body
+    if (!email) {
+        throw new ApiErrors(400, "Email is required")
+    }
+
+    const user = await User.findOne({ email })
+    if (!user) {
+        throw new ApiErrors(404, "user not found")
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    user.verifyOtp = otp
+    user.verifyOtpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
+    await user.save({ validateBeforeSave: false })
+
+    const mailOptions = {
+        from: process.env.SENDER_EMAIL,
+        to: user.email,
+        subject: 'Reset Password',
+        text: `Hello ${user.name || ''}, You requested a password reset for your account. Your one-time OTP is: ${otp}. This OTP will expire in 5 minutes. If you didn’t request this, please ignore this email.`
+    }
+
+    try {
+        await transport.sendMail(mailOptions)
+    } catch (error) {
+        throw new ApiErrors(400, "otp send failed")
+    }
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, 'Otp sent successfully')
+        )
+})
+
+export const resetPass = [
+    check('password')
+        .trim()
+        .isLength({ min: 8 })
+        .withMessage('password must be has 8 character')
+        .matches(/[0-9]/)
+        .withMessage('password must has a number')
+        .matches(/[a-zA-Z]/)
+        .withMessage('password must has a alphabet'),
+    check('confirm_password')
+        .custom((value, { req }) => {
+            if (value !== req.body.password) {
+                throw new ApiErrors(400, 'password not matched')
+            }
+            return true
+        }),
+
+    asyncHandler(async (req, res) => {
+        const {email, password, otp} = req.body
+
+        const error = validationResult(req)
+        
+        if (!error.isEmpty()) {
+            throw new ApiErrors(400, 'entered wrong value', error.array())
+        }
+
+        if (!email || !password) {
+            throw new ApiErrors(400, "all value are required")
+        }
+
+        const user = await User.findOne({email})
+
+        if (!user) {
+            throw new ApiErrors(400, "user not found")
+        }
+
+        if (otp === '' || otp !== user.verifyOtp) {
+            throw new ApiErrors(400, 'otp is not matched')
+        }
+
+        if (user.verifyOtpExpired<Date.now()) {
+            throw new ApiErrors(400, 'otp is expired')
+        }
+        
+        user.verifyOtp = ''
+        user.verifyOtpExpired = 0
+        user.password = password
+        await user.save({validateBeforeSave: false})
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(200, {}, 'password reset successfully')
+            )
+    })
+]

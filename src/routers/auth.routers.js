@@ -9,5 +9,7 @@ auth.post('/loggedIn', authController.userLoggedIn)
 auth.post('/loggedOut', verifyJwt, authController.userLoggedOut)
 auth.post('/sendVerifyOtp', authController.sendVerifyOtp)
 auth.post('/verifyEmail', authController.verifyEmail)
+auth.post('/reset-password-otp', authController.sendPassResetOtp)
+auth.post('/reset-password', authController.resetPass)
 
 export default auth
