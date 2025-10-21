@@ -24,18 +24,6 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
-    isAccountVerifyed:{
-        type: Boolean,
-        default: false
-    },
-    resetOtp:{
-        type: String,
-        default: ''
-    },
-    resetOtpExpired:{
-        type: Number,
-        default: 0
-    },
     refreshToken:{
         type: String
     },

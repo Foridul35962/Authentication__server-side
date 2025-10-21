@@ -7,5 +7,7 @@ const auth = express.Router()
 auth.post('/register',authController.registerUser)
 auth.post('/loggedIn', authController.userLoggedIn)
 auth.post('/loggedOut', verifyJwt, authController.userLoggedOut)
+auth.post('/sendVerifyOtp', authController.sendVerifyOtp)
+auth.post('/verifyEmail', authController.verifyEmail)
 
 export default auth

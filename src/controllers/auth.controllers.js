@@ -86,28 +86,10 @@ export const userLoggedIn = asyncHandler(async (req, res) => {
         throw new ApiErrors(400, 'password is incorrect')
     }
 
-    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
-
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
-    
-    const accessOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000
-    }
-    
-    const refreshOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000 * 10
-    }
 
     return res
         .status(200)
-        .cookie('accessToken', accessToken, accessOptions)
-        .cookie('refreshToken', refreshToken, refreshOptions)
         .json(
             new ApiResponse(200, loggedInUser, "User loggedIn successfully")
         )
@@ -140,5 +122,92 @@ export const userLoggedOut = asyncHandler(async (req, res) => {
         .clearCookie('refreshToken', options)
         .json(
             new ApiResponse(200, {}, 'user logged out successfully')
+        )
+})
+
+export const sendVerifyOtp = asyncHandler(async (req, res) => {
+    const { userId } = req.body
+    try {
+        const user = await User.findById(userId)
+        const otp = String(Math.floor(100000 + Math.random() * 900000))
+        user.verifyOtp = otp
+        user.verifyOtpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
+        await user.save({ validateBeforeSave: false })
+        const mailOptions = {
+            from: process.env.SENDER_EMAIL,
+            to: user.email,
+            subject: 'Welcome to my Authentication Project',
+            text: `Welcome to My website. Your otp is ${otp}. please verify your account using This OTP`
+        }
+
+        try {
+            await transport.sendMail(mailOptions)
+        } catch (error) {
+            throw new ApiErrors(400, "otp send failed")
+        }
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(200, {}, "varification Otp is sended successfully")
+            )
+    } catch (error) {
+        throw new ApiErrors(400, "verification otp sended failed")
+    }
+})
+
+export const verifyEmail = asyncHandler(async (req, res) => {
+    const { userId, otp } = req.body
+    if (!userId) {
+        throw new ApiErrors(400, "user Id is required")
+    }
+    const user = await User.findById(userId)
+
+    if (!user) {
+        throw new ApiErrors(400, "user not found")
+    }
+
+    if (otp === '' || user.verifyOtp !== otp) {
+        user.verifyOtp = ''
+        user.verifyOtpExpired = 0
+        await user.save({validateBeforeSave: false})
+        throw new ApiErrors(400, "Otp is not matched")
+    }
+
+    if (user.verifyOtpExpired < Date.now()) {
+        user.verifyOtp = ''
+        user.verifyOtpExpired = 0
+        await user.save({validateBeforeSave: false})
+        throw new ApiErrors(400, "OTP is expired")
+    }
+
+    user.verifyOtp = ''
+    user.verifyOtpExpired = 0
+    await user.save({validateBeforeSave: false})
+
+    const verifiedUser = await User.findById(user._id).select("-password -refreshToken -verifyOtp")
+
+    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
+    
+    const accessOptions = {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        maxAge: 15 * 60 * 1000
+    }
+
+    const refreshOptions = {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        maxAge: 24 * 60 * 60 * 1000 * 7
+    }
+
+    return res
+        .status(200)
+        .cookie('accessToken', accessToken, accessOptions)
+        .cookie('refreshToken', refreshToken, refreshOptions)
+        .json(
+            new ApiResponse(200, verifiedUser, "user is verified successfully" )
         )
 })
