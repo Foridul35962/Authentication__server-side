@@ -168,8 +168,6 @@ export const verifyEmail = asyncHandler(async (req, res) => {
     }
 
     if (otp === '' || user.verifyOtp !== otp) {
-        user.verifyOtp = ''
-        user.verifyOtpExpired = 0
         await user.save({ validateBeforeSave: false })
         throw new ApiErrors(400, "Otp is not matched")
     }

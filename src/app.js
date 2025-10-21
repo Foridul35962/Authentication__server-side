@@ -6,7 +6,7 @@ const app = express()
 
 //local file import
 import errorHandler from './utils/errorHandler.js'
-import authRouter from './routers/auth.routers.js'
+import authRouter from './routers/auth.route.js'
 
 //setting request URL
 app.use(cors({
