@@ -5,6 +5,7 @@ import { check, validationResult } from 'express-validator'
 import ApiResponse from "../utils/ApiResponse.js";
 import generateAccessAndRefreshToken from "../utils/token.js";
 import transport from "../config/nodemailer.js";
+import { TempUser } from "../models/tempUser.models.js";
 
 
 export const registerUser = [
@@ -45,29 +46,74 @@ export const registerUser = [
             throw new ApiErrors(400, 'Email is already used')
         }
 
-        const user = await User.create({
-            userName, email, password
-        })
-        const userData = user.toObject()
-        delete userData.password
-
         //sending mail
+        const otp = String(Math.floor(100000 + Math.random() * 900000))
+        const otpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
         const mailOptions = {
             from: process.env.SENDER_EMAIL,
             to: email,
             subject: 'Welcome to my Authentication Project',
-            text: `Welcome to My website. Your account has been created with email id: ${email}`
+            text: `Welcome to My website. Your otp is ${otp}. please verify your account using This OTP`
         }
 
-        await transport.sendMail(mailOptions)
+        //save in temporary user
+        await TempUser.findOneAndUpdate(
+            {email},
+            {userName, password, otp, otpExpired, createdAt: Date.now()},
+            {upsert: true, new: true}
+        )
+
+        try {
+            await transport.sendMail(mailOptions)
+        } catch (error) {
+            throw new ApiErrors(400, "otp send failed")
+        }
 
         return res
             .status(200)
             .json(
-                new ApiResponse(200, userData, 'user registration is successfully')
+                new ApiResponse(200, {}, 'otp send successfully')
             )
     })
 ]
+
+export const verifyEmail = asyncHandler(async (req, res) => {
+    const { otp, email } = req.body
+
+    if (!email) {
+        throw new ApiErrors(400, "email is required")
+    }
+
+    const temp = await TempUser.findOne({email})
+    if (!temp) {
+        throw new ApiErrors(404, "temp user not found")
+    }
+
+    if (otp === '' || otp !== temp.otp) {
+        throw new ApiErrors(400, 'otp is not matched')
+    }
+
+    if (temp.otpExpired.getTime() < Date.now()) {
+        throw new ApiErrors(400, 'otp is expired')
+    }
+
+    const user = await User.create({
+        userName: temp.userName,
+        email: temp.email,
+        password: temp.password
+    })
+
+    await TempUser.findByIdAndDelete(temp._id)
+
+    const userData = user.toObject()
+    delete userData.password
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, userData, "user register successfully")
+        )
+})
 
 export const userLoggedIn = asyncHandler(async (req, res) => {
     const { email, password } = req.body
@@ -86,10 +132,26 @@ export const userLoggedIn = asyncHandler(async (req, res) => {
         throw new ApiErrors(400, 'password is incorrect')
     }
 
+    const {accessToken, refreshToken} = await generateAccessAndRefreshToken(user._id)
+
+    const accessOptions = {
+        httpOnly: true,
+        secure: true,
+        maxAge: 15 * 60 * 1000
+    }
+
+    const refreshOptions = {
+        httpOnly: true,
+        secure: true,
+        maxAge: 24 * 60 * 60 * 1000 * 7
+    }
+
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
 
     return res
         .status(200)
+        .cookie('accessToken', accessToken, accessOptions)
+        .cookie('refreshToken', refreshToken, refreshOptions)
         .json(
             new ApiResponse(200, loggedInUser, "User loggedIn successfully")
         )
@@ -125,91 +187,6 @@ export const userLoggedOut = asyncHandler(async (req, res) => {
         )
 })
 
-export const sendVerifyOtp = asyncHandler(async (req, res) => {
-    const { userId } = req.body
-    try {
-        const user = await User.findById(userId)
-        const otp = String(Math.floor(100000 + Math.random() * 900000))
-        user.verifyOtp = otp
-        user.verifyOtpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
-        await user.save({ validateBeforeSave: false })
-        const mailOptions = {
-            from: process.env.SENDER_EMAIL,
-            to: user.email,
-            subject: 'Welcome to my Authentication Project',
-            text: `Welcome to My website. Your otp is ${otp}. please verify your account using This OTP`
-        }
-
-        try {
-            await transport.sendMail(mailOptions)
-        } catch (error) {
-            throw new ApiErrors(400, "otp send failed")
-        }
-
-        return res
-            .status(200)
-            .json(
-                new ApiResponse(200, {}, "varification Otp is sended successfully")
-            )
-    } catch (error) {
-        throw new ApiErrors(400, "verification otp sended failed")
-    }
-})
-
-export const verifyEmail = asyncHandler(async (req, res) => {
-    const { userId, otp } = req.body
-    if (!userId) {
-        throw new ApiErrors(400, "user Id is required")
-    }
-    const user = await User.findById(userId)
-
-    if (!user) {
-        throw new ApiErrors(400, "user not found")
-    }
-
-    if (otp === '' || user.verifyOtp !== otp) {
-        await user.save({ validateBeforeSave: false })
-        throw new ApiErrors(400, "Otp is not matched")
-    }
-
-    if (user.verifyOtpExpired < Date.now()) {
-        user.verifyOtp = ''
-        user.verifyOtpExpired = 0
-        await user.save({ validateBeforeSave: false })
-        throw new ApiErrors(400, "OTP is expired")
-    }
-
-    user.verifyOtp = ''
-    user.verifyOtpExpired = 0
-    await user.save({ validateBeforeSave: false })
-
-    const verifiedUser = await User.findById(user._id).select("-password -refreshToken -verifyOtp")
-
-    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id)
-
-    const accessOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000
-    }
-
-    const refreshOptions = {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000 * 7
-    }
-
-    return res
-        .status(200)
-        .cookie('accessToken', accessToken, accessOptions)
-        .cookie('refreshToken', refreshToken, refreshOptions)
-        .json(
-            new ApiResponse(200, verifiedUser, "user is verified successfully")
-        )
-})
-
 export const sendPassResetOtp = asyncHandler(async (req, res) => {
     const { email } = req.body
     if (!email) {
@@ -222,15 +199,19 @@ export const sendPassResetOtp = asyncHandler(async (req, res) => {
     }
 
     const otp = String(Math.floor(100000 + Math.random() * 900000))
-    user.verifyOtp = otp
-    user.verifyOtpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
-    await user.save({ validateBeforeSave: false })
+    const otpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
+    
+    await TempUser.findOneAndUpdate(
+        {email},
+        {otp, otpExpired, createdAt: Date.now()},
+        {upsert: true, new : true, validateBeforeSave: false}
+    )
 
     const mailOptions = {
         from: process.env.SENDER_EMAIL,
         to: user.email,
         subject: 'Reset Password',
-        text: `Hello ${user.name || ''}, You requested a password reset for your account. Your one-time OTP is: ${otp}. This OTP will expire in 5 minutes. If you didn’t request this, please ignore this email.`
+        text: `Hello ${user.name || ''}, You requested to reset your password for your account. Your one-time OTP is: ${otp}. This OTP will expire in 5 minutes. If you didn’t request this, please ignore this email.`
     }
 
     try {
@@ -243,6 +224,34 @@ export const sendPassResetOtp = asyncHandler(async (req, res) => {
         .status(200)
         .json(
             new ApiResponse(200, {}, 'Otp sent successfully')
+        )
+})
+
+export const checkPassOtp = asyncHandler(async (req, res)=>{
+    const {otp, email} = req.body
+    if (!email) {
+        throw new ApiErrors(400, 'email is required')
+    }
+
+    const temp = await TempUser.findOne({email})
+    if (!temp) {
+        throw new ApiErrors(404, 'Temp User is not found')
+    }
+
+    if (otp === '' || otp !== temp.otp) {
+        throw new ApiErrors(400, "Otp is not matched")
+    }
+
+    if (temp.otpExpired < Date.now()) {
+        throw new ApiErrors(400, 'otp is expired')
+    }
+
+    await TempUser.findByIdAndDelete(temp._id)
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, {}, 'Reset Password Otp is matched')
         )
 })
 
@@ -264,36 +273,26 @@ export const resetPass = [
         }),
 
     asyncHandler(async (req, res) => {
-        const {email, password, otp} = req.body
+        const { email, password } = req.body
 
         const error = validationResult(req)
-        
+
         if (!error.isEmpty()) {
             throw new ApiErrors(400, 'entered wrong value', error.array())
         }
 
         if (!email || !password) {
-            throw new ApiErrors(400, "all value are required")
+            throw new ApiErrors(400, "all field are required")
         }
 
-        const user = await User.findOne({email})
+        const user = await User.findOne({ email })
 
         if (!user) {
             throw new ApiErrors(400, "user not found")
         }
 
-        if (otp === '' || otp !== user.verifyOtp) {
-            throw new ApiErrors(400, 'otp is not matched')
-        }
-
-        if (user.verifyOtpExpired<Date.now()) {
-            throw new ApiErrors(400, 'otp is expired')
-        }
-        
-        user.verifyOtp = ''
-        user.verifyOtpExpired = 0
         user.password = password
-        await user.save({validateBeforeSave: false})
+        await user.save({ validateBeforeSave: false })
 
         return res
             .status(200)

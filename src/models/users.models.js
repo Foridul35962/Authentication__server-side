@@ -16,17 +16,9 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    verifyOtp:{
-        type: String,
-        default: ''
-    },
-    verifyOtpExpired:{
-        type: Number,
-        default: 0
-    },
     refreshToken:{
         type: String
-    },
+    }
 })
 
 userSchema.pre('save', async function (next) {
