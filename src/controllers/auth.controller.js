@@ -6,6 +6,7 @@ import ApiResponse from "../utils/ApiResponse.js";
 import generateAccessAndRefreshToken from "../utils/token.js";
 import transport from "../config/nodemailer.js";
 import { TempUser } from "../models/tempUser.models.js";
+import { generatePasswordResetMail, generateVerificationMail } from "../utils/verificationMail.js";
 
 
 export const registerUser = [
@@ -49,12 +50,7 @@ export const registerUser = [
         //sending mail
         const otp = String(Math.floor(100000 + Math.random() * 900000))
         const otpExpired = Date.now() + 1000 * 60 * 5      //5 minutes
-        const mailOptions = {
-            from: process.env.SENDER_EMAIL,
-            to: email,
-            subject: 'Welcome to my Authentication Project',
-            text: `Welcome to My website. Your otp is ${otp}. please verify your account using This OTP`
-        }
+        const mailOptions = generateVerificationMail(email, otp)
 
         //save in temporary user
         await TempUser.findOneAndUpdate(
@@ -207,12 +203,7 @@ export const sendPassResetOtp = asyncHandler(async (req, res) => {
         {upsert: true, new : true, validateBeforeSave: false}
     )
 
-    const mailOptions = {
-        from: process.env.SENDER_EMAIL,
-        to: user.email,
-        subject: 'Reset Password',
-        text: `Hello ${user.name || ''}, You requested to reset your password for your account. Your one-time OTP is: ${otp}. This OTP will expire in 5 minutes. If you didn’t request this, please ignore this email.`
-    }
+    const mailOptions = generatePasswordResetMail(email, otp)
 
     try {
         await transport.sendMail(mailOptions)
