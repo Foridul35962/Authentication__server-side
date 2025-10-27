@@ -11,7 +11,7 @@ import userRouter from './routers/user.route.js'
 
 //setting request URL
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'https://authentication-client-side.vercel.app',
+    origin: process.env.CORS_ORIGIN,
     credentials: true
 }))
 
