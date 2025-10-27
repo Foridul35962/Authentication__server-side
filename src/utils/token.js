@@ -9,7 +9,7 @@ const generateAccessAndRefreshToken = async (userId, isOnlyAccessToken = false)=
     try {
         const user = await User.findById(userId)
         if (!user) {
-            throw new ApiErrors(400, 'user not found')
+            throw new ApiErrors(404, 'user not found')
         }
         const accessToken = await user.generateAccessToken()
         if (!isOnlyAccessToken) {
